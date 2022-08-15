@@ -1,3 +1,4 @@
+import sys
 import os
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
@@ -5,6 +6,7 @@ from spotipy.oauth2 import SpotifyOAuth
 import spotipy.util as util
 import pandas as pd
 import matplotlib.pyplot as plt
+import json
 
 
 cid = '2693c65b89f3470c85d2295c2ffa9ef4'
@@ -26,6 +28,9 @@ if token:
 else:
     print("Can't get token for", username)
 
+if (len(sys.argv) > 1):
+    dislike_playlist = sys.argv[1]
+
 
 results = sp.current_user_top_tracks(limit=50, offset=0, time_range='medium_term')
 top_tracks = results['items']
@@ -33,6 +38,11 @@ top_ids = []
 i = 0
 for i in range(50):
     top_ids.append(top_tracks[i]['id'])
+
+dislike_songs = sp.playlist_tracks(dislike_playlist, limit=100, offset=0)
+dislike_ids = []
+for song in dislike_songs['items']:
+    dislike_ids.append(song['track']['id'])
 
 features = []
 j = 0
@@ -42,21 +52,28 @@ for j in range(50):
         features.append(song)
         features[-1]['target'] = 1
 
+j = 0
+for j in range(len(dislike_ids)):
+    audio = sp.audio_features(dislike_ids[j])
+    for song in audio:
+        features.append(song)
+        features[-1]['target'] = 0
+
 songs_data = pd.DataFrame(features)
-filename = 'data/mySpotify.csv'
+filename = 'mySpotify2.csv'
 songs_data.to_csv(filename, index=False, encoding='utf-8')
 
-features_names = ['danceability', 'energy', 'loudness', 'speechiness', 'acousticness',
-                  'instrumentalness', 'valence', 'tempo']
-k = 0
-for k in range(8):
-    plt.figure()
-    plt.hist(songs_data[features_names[k]])
-    title = 'Measurement of ' + features_names[k]
-    plt.title(title)
-    plt.xlabel(features_names[k])
-    plt.ylabel('Number of Songs')
-    fig = 'data/' + features_names[k] + '.png'
-    plt.savefig(fig)
+# features_names = ['danceability', 'energy', 'loudness', 'speechiness', 'acousticness',
+#                   'instrumentalness', 'valence', 'tempo']
+# k = 0
+# for k in range(8):
+#     plt.figure()
+#     plt.hist(songs_data[features_names[k]])
+#     title = 'Measurement of ' + features_names[k]
+#     plt.title(title)
+#     plt.xlabel(features_names[k])
+#     plt.ylabel('Number of Songs')
+#     fig = 'data/' + features_names[k] + '.png'
+#     plt.savefig(fig)
 
 

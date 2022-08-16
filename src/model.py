@@ -1,78 +1,98 @@
-import tensorflow as tf
-import keras
 from keras.models import Sequential
 from keras.layers.core import Dense
-import pandas as pd
 import sys
-import json
-import os
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
-from spotipy.oauth2 import SpotifyOAuth
 import spotipy.util as util
+from myData import *
+from aggregatePlaylists import *
 
-cid = '2693c65b89f3470c85d2295c2ffa9ef4'
-secret = '6d7d982e8f9c4385ab1d177b0fa5ba93'
-redirect_uri = 'https://127.0.0.1:8000/spotify/callback/'
+def make_model(data, feature_names):
+    x_train = data[feature_names]
+    y_train = data['target']
 
-os.environ['SPOTIPY_CLIENT_ID']= cid
-os.environ['SPOTIPY_CLIENT_SECRET']= secret
-os.environ['SPOTIPY_REDIRECT_URI']='https://127.0.0.1:8000/spotify/callback/'
+    model = Sequential()
+    model.add(Dense(12, input_shape=(8,), activation='relu'))
+    model.add(Dense(8, activation='relu'))
+    model.add(Dense(1, activation='sigmoid'))
 
-username = ""
-client_credentials_manager = SpotifyClientCredentials(client_id=cid, client_secret=secret) 
-sp = spotipy.Spotify(client_credentials_manager=client_credentials_manager)
-scope = 'user-top-read playlist-modify-public'
-token = util.prompt_for_user_token(username, scope)
+    model.compile(loss='binary_crossentropy',
+                  optimizer='adam', metrics=['accuracy'])
 
-user = sp.current_user()
-print(json.dumps(user))
+    model.fit(x_train, y_train, epochs=150, batch_size=10)
 
-if token:
-    sp = spotipy.Spotify(auth=token)
-else:
-    print("Can't get token for", username)
+    _, accuracy = model.evaluate(x_train, y_train)
 
-training_data = pd.read_csv('src/mySpotify2.csv')
+    return model
 
-features = ['danceability', 'energy', 'loudness', 'speechiness', 'acousticness',
-            'instrumentalness', 'valence', 'tempo']
 
-x_train = training_data[features]
-y_train = training_data['target']
+def make_predictions(model, predictor, feature_names):
+    predictions = model.predict(predictor[feature_names])
 
-model = Sequential()
-model.add(Dense(12, input_shape=(8,), activation='relu'))
-model.add(Dense(8, activation='relu'))
-model.add(Dense(1, activation='sigmoid'))
+    return predictions
 
-model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
 
-model.fit(x_train, y_train, epochs=150, batch_size=10)
+def make_playlist(predictions, predictor, sp, user_id, playlist_title):
+    liked_ids = []
+    i = 0
 
-_, accuracy = model.evaluate(x_train, y_train)
+    for prediction in predictions:
+        if(prediction > .5):
+            liked_id = predictor.loc[i]['id']
+            liked_ids.append(liked_id)
+        i += 1
 
-predictor = pd.read_csv('data/searchSpotify2.csv')
-predictions = model.predict(predictor[features])
+    new_playlist = sp.user_playlist_create(user=user_id, name=playlist_title,
+                                           description="Songs you might like based on your search")
 
-liked_ids = []
-i = 0
+    k = 0
+    for k in range(0, len(liked_ids), 100):
+        sp.user_playlist_add_tracks(
+            user=user_id, playlist_id=new_playlist['id'], tracks=liked_ids[k:k+100])
 
-for prediction in predictions:
-    if(prediction>.5):
-        liked_id = predictor.loc[i]['id']
-        liked_ids.append(liked_id)
-    i += 1
 
-if len(sys.argv) > 1:
-    playlist_title = sys.argv[1]
+if __name__ == '__main__':
+    if len(sys.argv) != 6:
+        print("Missing arguments")
+        sys.exit()
 
-new_playlist = sp.user_playlist_create(user=user['id'], name=playlist_title, 
-description="Songs you might like based on your search")
+    username = sys.argv[1]
+    keyword = sys.argv[2]
+    dislike_playlist = sys.argv[3]
+    playlist_title = sys.argv[4]
+    dat = sys.argv[5]
 
-# playlists = sp.user_playlist()
-k = 0
-for k in range(0, len(liked_ids), 100):
-    add = sp.user_playlist_add_tracks(user=user['id'], playlist_id=new_playlist['id'], tracks=liked_ids[k:k+100])
+    auth_manager = SpotifyClientCredentials()
+    sp = spotipy.Spotify(auth_manager=auth_manager)
+    scope = 'user-library-read user-top-read playlist-modify-public'
+    token = util.prompt_for_user_token(username, scope)
 
-# print(liked)
+    if token:
+        sp = spotipy.Spotify(auth=token)
+    else:
+        print("Can't get token for", username)
+
+    like_ids = []
+    like_ids = get_user_top_ids(like_ids, sp)
+
+    dislike_ids = []
+    dislike_ids = get_playlist_tracks(dislike_ids, dislike_playlist, sp)
+
+    features = []
+    training_data = get_features(features, like_ids, dislike_ids, sp)
+
+    feature_names = ['danceability', 'energy', 'loudness', 'speechiness', 'acousticness',
+                     'instrumentalness', 'valence', 'tempo']
+
+    if dat:
+        get_data(training_data, feature_names)
+
+    search_ids = []
+    search_ids = get_tracks_by_keyword(keyword, search_ids, sp, username)
+
+    search_features = []
+    search_data = get_keyword_search_features(search_features, search_ids, sp)
+
+    model = make_model(training_data, feature_names)
+    predictions = make_predictions(model, search_data, feature_names)
+    make_playlist(predictions, search_data, sp, username, playlist_title)

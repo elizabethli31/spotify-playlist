@@ -1,79 +1,96 @@
-import sys
-import os
-import spotipy
-from spotipy.oauth2 import SpotifyClientCredentials
-from spotipy.oauth2 import SpotifyOAuth
-import spotipy.util as util
 import pandas as pd
 import matplotlib.pyplot as plt
-import json
+
+def get_user_top_ids(ids, sp):
+    ids = []
+
+    # User Top Tracks
+    results = sp.current_user_top_tracks(limit=50, offset=0, time_range='medium_term')
+    tracks = results['items']
+
+    i = 0
+    for i in range(len(tracks)):
+        ids.append(tracks[i]['id'])
 
 
-cid = '2693c65b89f3470c85d2295c2ffa9ef4'
-secret = '6d7d982e8f9c4385ab1d177b0fa5ba93'
-redirect_uri = 'https://127.0.0.1:8000/spotify/callback/'
+    # User Saved Tracks
+    results = sp.current_user_saved_tracks(limit=50, offset=0)
+    tracks = results['items']
 
-os.environ['SPOTIPY_CLIENT_ID']= cid
-os.environ['SPOTIPY_CLIENT_SECRET']= secret
-os.environ['SPOTIPY_REDIRECT_URI']='https://127.0.0.1:8000/spotify/callback/'
-
-username = ""
-client_credentials_manager = SpotifyClientCredentials(client_id=cid, client_secret=secret) 
-sp = spotipy.Spotify(client_credentials_manager=client_credentials_manager)
-scope = 'user-top-read'
-token = util.prompt_for_user_token(username, scope)
-
-if token:
-    sp = spotipy.Spotify(auth=token)
-else:
-    print("Can't get token for", username)
-
-if (len(sys.argv) > 1):
-    dislike_playlist = sys.argv[1]
+    i = 0
+    for i in range(len(tracks)):
+        ids.append(tracks[i]['track']['id'])
 
 
-results = sp.current_user_top_tracks(limit=50, offset=0, time_range='medium_term')
-top_tracks = results['items']
-top_ids = []
-i = 0
-for i in range(50):
-    top_ids.append(top_tracks[i]['id'])
+    # User Top Artists
+    results = sp.current_user_top_artists(limit=20, offset=0, time_range='medium_term')
+    artists = []
+    for result in results['items']:
+        artists.append(result['id'])
+    
+    i = 0
+    for i in range(len(artists)):
+        tracks = sp.artist_top_tracks(artists[i], country='US')
+        for track in tracks['tracks']:
+            ids.append(track['id'])
 
-dislike_songs = sp.playlist_tracks(dislike_playlist, limit=100, offset=0)
-dislike_ids = []
-for song in dislike_songs['items']:
-    dislike_ids.append(song['track']['id'])
-
-features = []
-j = 0
-for j in range(50):
-    audio = sp.audio_features(top_ids[j])
-    for song in audio:
-        features.append(song)
-        features[-1]['target'] = 1
-
-j = 0
-for j in range(len(dislike_ids)):
-    audio = sp.audio_features(dislike_ids[j])
-    for song in audio:
-        features.append(song)
-        features[-1]['target'] = 0
-
-songs_data = pd.DataFrame(features)
-filename = 'mySpotify2.csv'
-songs_data.to_csv(filename, index=False, encoding='utf-8')
-
-# features_names = ['danceability', 'energy', 'loudness', 'speechiness', 'acousticness',
-#                   'instrumentalness', 'valence', 'tempo']
-# k = 0
-# for k in range(8):
-#     plt.figure()
-#     plt.hist(songs_data[features_names[k]])
-#     title = 'Measurement of ' + features_names[k]
-#     plt.title(title)
-#     plt.xlabel(features_names[k])
-#     plt.ylabel('Number of Songs')
-#     fig = 'data/' + features_names[k] + '.png'
-#     plt.savefig(fig)
+    return ids
 
 
+def get_playlist_tracks(ids, playlist, sp):
+    tracks = sp.playlist_tracks(playlist, limit=100, offset=0)
+
+    while tracks:
+        for song in tracks['items']:
+            ids.append(song['track']['id'])
+    
+        if tracks['next']:
+            tracks = sp.next(tracks)
+        else:
+            break
+    
+    return ids
+
+
+def get_features(features, like, dislike, sp):
+
+    i = 0
+    for i in range(len(like)):
+        audios = sp.audio_features(like[i])
+
+        for audio in audios:
+            features.append(audio)
+            features[-1]['target'] = 1
+
+    i = 0
+    for i in range(len(dislike)):
+        audios = sp.audio_features(dislike[i])
+
+        for audio in audios:
+            features.append(audio)
+            features[-1]['target'] = 0
+
+    return pd.DataFrame(features)
+
+
+def get_data(data, feature_names):
+    i = 0
+    for i in range(len(feature_names)):
+        liked = data[data['target']==1][feature_names[i]]
+        disliked = data[data['target']==0][feature_names[i]]
+        plt.figure()
+        liked.hist(alpha=0.7, bins=30, label='liked')
+        disliked.hist(alpha=0.7, bins=30, label='disliked')
+
+        title = 'Measurement of ' + feature_names[i]
+        plt.title(title)
+        plt.xlabel(feature_names[i])
+        plt.ylabel('Number of Songs')
+        plt.legend(loc='upper right')
+
+        fig = 'data/' + feature_names[i] + '.png'
+        plt.savefig(fig)
+
+    data.to_csv('data/yourSpotifyData.csv', index=False, encoding='utf-8')
+
+    

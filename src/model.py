@@ -1,3 +1,4 @@
+from keras.layers import Dropout
 from keras.models import Sequential
 from keras.layers.core import Dense
 import sys
@@ -11,10 +12,13 @@ def make_model(data, feature_names):
     x_train = data[feature_names]
     y_train = data['target']
 
-    model = Sequential()
-    model.add(Dense(12, input_shape=(8,), activation='relu'))
-    model.add(Dense(8, activation='relu'))
-    model.add(Dense(1, activation='sigmoid'))
+    model = Sequential([
+        Dense(64, activation='tanh', input_shape=(8,), kernel_regularizer='l1'),
+        Dense(32, activation='relu', kernel_regularizer='l1'),
+        Dense(16, activation='relu', kernel_regularizer='l1'),
+        Dense(8, activation='relu', kernel_regularizer='l1'),
+        Dense(1, activation='sigmoid')
+    ])
 
     model.compile(loss='binary_crossentropy',
                   optimizer='adam', metrics=['accuracy'])
